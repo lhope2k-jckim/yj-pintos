@@ -15,6 +15,10 @@
 #include "userprog/process.h"
 #endif
 
+//// LHOPE add : BEG
+#include "../devices/timer.h"
+//// LHOPE add : END
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -138,6 +142,11 @@ thread_tick (void)
 #endif
     else
         kernel_ticks++;
+    
+    //// LHOPE add : BEG
+    if (timer_ticks() % TIME_SLICE == 0)
+        thread_aging();
+    //// LHOPE add : END
 
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
@@ -214,6 +223,11 @@ thread_create (const char *name, int priority,
     /* Add to run queue. */
     thread_unblock (t);
 
+    //// LHOPE add : BEG
+    if (t->priority > thread_current()->priority)
+        thread_yield();
+    //// LHOPE add : END
+
     return tid;
 }
 
@@ -250,9 +264,13 @@ thread_unblock (struct thread *t)
 
     old_level = intr_disable ();
     ASSERT (t->status == THREAD_BLOCKED);
-    list_push_back (&ready_list, &t->elem);
+    //// LHOPE modify : BEG
+    //list_push_back (&ready_list, &t->elem);
+    
+    list_insert_ordered(&ready_list, &t->elem, thread_priority_more, NULL);
     t->status = THREAD_READY;
     intr_set_level (old_level);
+    //// LHOPE modify : END    
 }
 
 static void
@@ -377,8 +395,12 @@ thread_yield (void)
     ASSERT (!intr_context ());
 
     old_level = intr_disable ();
+    // LHOPE modify : BEG
+    //if (cur != idle_thread)
+    //    list_push_back (&ready_list, &cur->elem);
     if (cur != idle_thread)
-        list_push_back (&ready_list, &cur->elem);
+        list_insert_ordered(&ready_list, &cur->elem, thread_priority_more, NULL);
+    // LHOPE modify : END
     cur->status = THREAD_READY;
     schedule ();
     intr_set_level (old_level);
@@ -405,7 +427,15 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority)
 {
+    // LHOPE modify : BEG
+    // thread_current ()->priority = new_priority;
+
+    int old_priority = thread_current ()->priority;
     thread_current ()->priority = new_priority;
+
+    if (new_priority < old_priority)
+        thread_yield ();
+    // LHOPE modify : END
 }
 
 /* Returns the current thread's priority. */
@@ -647,3 +677,49 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+
+// LHOPE add : BEG
+bool
+thread_priority_more(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+  struct thread *a = list_entry(a_, struct thread, elem);
+  struct thread *b = list_entry(b_, struct thread, elem);
+
+  return a->priority > b->priority;
+}
+
+int
+thread_get_highest_ready_priority(void)
+{
+    if (list_empty(&ready_list))
+        return PRI_MIN;
+
+    struct thread *t = list_entry(list_front(&ready_list),
+                                  struct thread, elem);
+    return t->priority;
+}
+
+void
+thread_aging(void)
+{
+    struct list_elem *e;
+
+    enum intr_level old_level = intr_disable();
+
+    for (e = list_begin(&ready_list); e != list_end(&ready_list);
+         e = list_next(e))
+    {
+        struct thread *t = list_entry(e, struct thread, elem);
+        if (t->priority < PRI_MAX)
+            t->priority++;
+    }
+
+    /* ready_list : priority 기준으로 정렬 유지 */
+    list_sort(&ready_list, thread_priority_more, NULL);
+
+    intr_set_level(old_level);
+}
+
+// LHOPE add : END

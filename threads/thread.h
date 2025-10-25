@@ -145,4 +145,11 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+
+// LHOPE add : BEG
+bool thread_priority_more (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
+int thread_get_highest_ready_priority (void);
+void thread_aging (void);
+// LHOPE add : END
+
 #endif /* threads/thread.h */

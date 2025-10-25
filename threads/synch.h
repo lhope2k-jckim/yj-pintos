@@ -41,6 +41,10 @@ void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
 
+//// LHOPE add : BEG
+bool sema_priority_more (const struct list_elem *a_, const struct list_elem *b_, void *aux);
+//// LHOPE add : END
+
 /* Optimization barrier.
 
    The compiler will not reorder operations across an

@@ -113,11 +113,32 @@ sema_up (struct semaphore *sema)
     ASSERT (sema != NULL);
 
     old_level = intr_disable ();
-    if (!list_empty (&sema->waiters))
-        thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                    struct thread, elem));
+    //// LHOPE modify : BEG
+    //if (!list_empty (&sema->waiters))
+    //    thread_unblock (list_entry (list_pop_front (&sema->waiters),
+    //                                struct thread, elem));
+    if (!list_empty(&sema->waiters))
+    {
+        // priority 기준으로, 정렬 유지
+        list_sort(&sema->waiters, thread_priority_more, NULL);
+
+        // 대기 첫번째 쓰레드 깨움 - 가장 높은 priority 쓰레드
+        struct thread *t = list_entry(list_pop_front(&sema->waiters),
+                                      struct thread, elem);
+        thread_unblock(t);
+    }
+    //// LHOPE modify : END
     sema->value++;
     intr_set_level (old_level);
+
+    // LHOPE add : BEG
+    if (!intr_context())
+    {
+        // 현재 쓰레드 보다 더 높은 priority 쓰레드가 대기 중이면 --> 양보
+        if (thread_get_highest_ready_priority() > thread_current()->priority)
+            thread_yield();
+    }
+    // LHOPE add : END
 }
 
 static void sema_test_helper (void *sema_);
@@ -316,10 +337,22 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
     ASSERT (!intr_context ());
     ASSERT (lock_held_by_current_thread (lock));
 
+    //// LHOPE modify : BEG
+    // if (!list_empty (&cond->waiters))
+    //     sema_up (&list_entry (list_pop_front (&cond->waiters),
+    //                           struct semaphore_elem, elem)
+    //                   ->semaphore);
+
     if (!list_empty (&cond->waiters))
+    {
+        // priority 기준으로, 재정렬
+        list_sort(&cond->waiters, sema_priority_more, NULL); // <-- 추가한 부분
+
         sema_up (&list_entry (list_pop_front (&cond->waiters),
-                              struct semaphore_elem, elem)
-                      ->semaphore);
+                            struct semaphore_elem, elem)
+                    ->semaphore);
+    }
+    //// LHOPE modify : END
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -337,3 +370,21 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     while (!list_empty (&cond->waiters))
         cond_signal (cond, lock);
 }
+
+
+//// LHOPE add : BEG
+bool
+sema_priority_more(const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED)
+{
+    const struct semaphore_elem *a = list_entry(a_, struct semaphore_elem, elem);
+    const struct semaphore_elem *b = list_entry(b_, struct semaphore_elem, elem);
+
+    // semaphore의 waiters 에서 가장 높은 priority 쓰레드 구하기
+    const struct thread *t_a = list_entry(list_front((struct list*)&a->semaphore.waiters),
+                                         struct thread, elem);
+    const struct thread *t_b = list_entry(list_front((struct list *)&b->semaphore.waiters),
+                                         struct thread, elem);
+
+    return t_a->priority > t_b->priority;
+}
+//// LHOPE add : END
